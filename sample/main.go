@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/LincolnG4/simple-dag/dag"
+	dag "github.com/LincolnG4/simple-dag"
 )
 
 func main() {
