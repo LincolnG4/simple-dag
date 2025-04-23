@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"time"
 
-	s "github.com/LincolnG4/go-dag"
+	"github.com/LincolnG4/simple-dag/dag"
 )
 
 func main() {
 
-	d := s.NewDag()
+	d := dag.NewDag()
 
-	n1 := s.NewNode("task1", func() error {
+	n1 := dag.NewNode("task1", func() error {
 		fmt.Println("Doing 1")
 		time.Sleep(1 * time.Second)
 		return nil
@@ -22,7 +22,7 @@ func main() {
 		panic(err)
 	}
 
-	n2 := s.NewNode("task2", func() error {
+	n2 := dag.NewNode("task2", func() error {
 		fmt.Println("Doing 2")
 		time.Sleep(1 * time.Second)
 		return nil
@@ -35,7 +35,7 @@ func main() {
 
 	d.AddDependency(n1, n2)
 
-	n3 := s.NewNode("task3", func() error {
+	n3 := dag.NewNode("task3", func() error {
 		fmt.Println("Doing 3")
 		time.Sleep(1 * time.Second)
 		return nil

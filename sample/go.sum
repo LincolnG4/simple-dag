@@ -1,2 +1,4 @@
-github.com/LincolnG4/go-dag v0.0.0-20250421133833-3ac083f33b83 h1:tbJm+QwVsiBLHKbhPg5ttAMNh392CiMZONgNl5oGLeo=
-github.com/LincolnG4/go-dag v0.0.0-20250421133833-3ac083f33b83/go.mod h1:HRPRpmew2aqkQIxC5SuaH3UaF28Qq5K8EJW6CR3jNS0=
+github.com/LincolnG4/simple-dag v0.0.0-20250423133722-0a58cee52ad0 h1:QueZhS2xW/cd730q+gjTrImrcMpn5z5QwKHlcg498d0=
+github.com/LincolnG4/simple-dag v0.0.0-20250423133722-0a58cee52ad0/go.mod h1:WtMUnXgCjdQHtgUhooS/legmEXozEck09zOB1PuJVxA=
+github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
+github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
