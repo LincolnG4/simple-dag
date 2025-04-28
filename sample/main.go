@@ -33,7 +33,7 @@ func main() {
 		defer fmt.Println("End 3")
 
 		time.Sleep(2 * time.Second)
-		return fmt.Errorf("SDSDS")
+		return nil
 	}, timeout)
 
 	n4 := d.AddNode("task4", func() error {

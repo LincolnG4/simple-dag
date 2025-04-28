@@ -30,19 +30,30 @@ func (n *Node) RunTask(ctx context.Context) error {
 	if n.Task == nil {
 		return nil
 	}
+
+	// add timeout to each task
 	ctx, cancel := context.WithTimeout(ctx, n.Timeout)
 	defer cancel()
 
+	// run task
 	taskResult := make(chan error, 1)
 	go func() {
 		taskResult <- n.Task()
 	}()
 
 	select {
-	case err := <-taskResult:
-		return fmt.Errorf("task `%s` failed: %w", n.Name, err)
 	case <-ctx.Done():
-		return ErrTaskFailed
+		// Context done first = timeout
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("task `%s` timeout: %w", n.Name, ErrTaskCancelled)
+		}
+		return fmt.Errorf("task `%s` cancelled: %w", n.Name, ErrTaskCancelled)
+	case err := <-taskResult:
+		// Task finished first
+		if err != nil {
+			return fmt.Errorf("task `%s` failed: %w", n.Name, err)
+		}
+		return nil
 	}
 }
 
@@ -76,8 +87,8 @@ func (d *Dag) AddNode(name string, task func() error, timeout time.Duration) *No
 	}
 	n.Timeout = timeout
 
-	d.Nodes[n.ID] = n
-	d.inDegree[n.ID] = 0
+	d.Nodes[n.Name] = n
+	d.inDegree[n.Name] = 0
 
 	return n
 }
@@ -87,9 +98,9 @@ func (d *Dag) IsValid() bool {
 	inDegreeCopy := d.copyInDegree()
 
 	queue := make([]*Node, 0)
-	for id, degree := range inDegreeCopy {
+	for name, degree := range inDegreeCopy {
 		if degree == 0 {
-			queue = append(queue, d.Nodes[id])
+			queue = append(queue, d.Nodes[name])
 		}
 	}
 
@@ -100,8 +111,8 @@ func (d *Dag) IsValid() bool {
 		count++
 
 		for _, neighbor := range node.Edges {
-			inDegreeCopy[neighbor.ID]--
-			if inDegreeCopy[neighbor.ID] == 0 {
+			inDegreeCopy[neighbor.Name]--
+			if inDegreeCopy[neighbor.Name] == 0 {
 				queue = append(queue, neighbor)
 			}
 		}
@@ -117,17 +128,17 @@ func (d *Dag) AddDependency(f, t *Node) error {
 		return fmt.Errorf("source can't be equal target")
 	}
 
-	_, ok := d.Nodes[f.ID]
+	_, ok := d.Nodes[f.Name]
 	if !ok {
-		return fmt.Errorf("dependency source task '%s' not found", f.ID)
+		return fmt.Errorf("dependency source task '%s' not found", f.Name)
 	}
-	_, ok = d.Nodes[t.ID]
+	_, ok = d.Nodes[t.Name]
 	if !ok {
-		return fmt.Errorf("dependency target task '%s' not found", t.ID)
+		return fmt.Errorf("dependency target task '%s' not found", t.Name)
 	}
 
 	f.Edges = append(f.Edges, t)
-	d.inDegree[t.ID] += 1
+	d.inDegree[t.Name] += 1
 
 	return nil
 }
@@ -168,8 +179,8 @@ func (d *Dag) run(ctx context.Context, errChannel chan error) {
 			mu.Lock()
 			// put edge nodes into queue
 			for _, n := range node.Edges {
-				inDegree[n.ID] -= 1
-				if inDegree[n.ID] == 0 {
+				inDegree[n.Name] -= 1
+				if inDegree[n.Name] == 0 {
 					queue <- n
 				}
 			}
