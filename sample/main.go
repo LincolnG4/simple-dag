@@ -10,7 +10,7 @@ import (
 
 func main() {
 
-	d := dag.NewDag(4)
+	d := dag.NewDag(36000 * time.Second)
 
 	timeout := 20 * time.Second
 	n1 := d.AddNode("task1", func() error {
@@ -33,7 +33,7 @@ func main() {
 		defer fmt.Println("End 3")
 
 		time.Sleep(2 * time.Second)
-		return nil
+		return fmt.Errorf("SDSDS")
 	}, timeout)
 
 	n4 := d.AddNode("task4", func() error {
@@ -62,7 +62,7 @@ func main() {
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	go func() {
-		time.Sleep(2 * time.Second)
+		time.Sleep(36000 * time.Second)
 		cancelFunc()
 	}()
 	err := d.Run(ctx)

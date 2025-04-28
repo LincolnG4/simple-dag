@@ -26,18 +26,30 @@ type Node struct {
 	Timeout time.Duration
 }
 
-func (n *Node) RunTask() error {
+func (n *Node) RunTask(ctx context.Context) error {
 	if n.Task == nil {
 		return nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, n.Timeout)
+	defer cancel()
 
-	return n.Task()
+	taskResult := make(chan error, 1)
+	go func() {
+		taskResult <- n.Task()
+	}()
+
+	select {
+	case err := <-taskResult:
+		return fmt.Errorf("task `%s` failed: %w", n.Name, err)
+	case <-ctx.Done():
+		return ErrTaskFailed
+	}
 }
 
 type Dag struct {
 	Nodes      map[string]*Node
 	inDegree   map[string]int
-	workerPool chan struct{} // Semaphore for worker pool
+	workerPool chan struct{}
 	Timeout    time.Duration
 }
 
@@ -50,6 +62,7 @@ func NewDag(timeout time.Duration) *Dag {
 	}
 }
 
+// AddNode adds node to the dag but the node has no dependency.
 func (d *Dag) AddNode(name string, task func() error, timeout time.Duration) *Node {
 	n := &Node{
 		ID:      uuid.New().String(),
@@ -69,6 +82,7 @@ func (d *Dag) AddNode(name string, task func() error, timeout time.Duration) *No
 	return n
 }
 
+// IsValid returns true if a DAG is not cyclic. Otherwise, it returns false.
 func (d *Dag) IsValid() bool {
 	inDegreeCopy := d.copyInDegree()
 
@@ -96,6 +110,8 @@ func (d *Dag) IsValid() bool {
 	return count == len(d.Nodes)
 }
 
+// AddDependecy `connect` node `f` to `t`, in other words, node `t` will be
+// dependent to node`f`.
 func (d *Dag) AddDependency(f, t *Node) error {
 	if f == t {
 		return fmt.Errorf("source can't be equal target")
@@ -116,7 +132,7 @@ func (d *Dag) AddDependency(f, t *Node) error {
 	return nil
 }
 
-func (d *Dag) run(errChannel chan error) {
+func (d *Dag) run(ctx context.Context, errChannel chan error) {
 	// make a copy of indegree
 	inDegree := d.copyInDegree()
 
@@ -144,9 +160,8 @@ func (d *Dag) run(errChannel chan error) {
 		go func(node *Node) {
 			defer wg.Done()
 
-			err := node.RunTask()
+			err := node.RunTask(ctx)
 			if err != nil {
-				fmt.Println(err)
 				errChannel <- err
 			}
 
@@ -171,17 +186,18 @@ func (d *Dag) Run(ctx context.Context) error {
 		return ErrInvalidDAG
 	}
 
+	// create a timeout context
 	ctx, cancel := context.WithTimeout(ctx, d.Timeout)
 	defer cancel()
 
+	// run task
 	errChannel := make(chan error, 1)
-
-	go d.run(errChannel)
+	go d.run(ctx, errChannel)
 
 	select {
 	case err := <-errChannel:
 		return err
-	case <-ctx.Done():
+	case <-ctx.Done(): // if context cancel/timeout
 		return fmt.Errorf("%v:%v", ErrDAGCancelled, ctx.Err())
 	}
 }
