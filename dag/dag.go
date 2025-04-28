@@ -1,53 +1,76 @@
 package dag
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
 
+var (
+	ErrInvalidDAG       = errors.New("invalid DAG: contains cycles")
+	ErrTaskCancelled    = errors.New("task cancelled")
+	ErrDAGCancelled     = errors.New("DAG cancelled")
+	ErrTaskFailed       = errors.New("task failed")
+	ErrDependencyFailed = errors.New("dependency failed")
+)
+
 type Node struct {
-	ID    string
-	Name  string
-	Edges []*Node
-	Task  func() error
+	ID      string
+	Name    string
+	Edges   []*Node
+	Task    func() error
+	Timeout time.Duration
 }
 
-func NewNode(name string, task func() error) *Node {
-	return &Node{
-		ID:   uuid.New().String(),
-		Name: name,
-		Task: task,
+func (n *Node) RunTask() error {
+	if n.Task == nil {
+		return nil
 	}
+
+	return n.Task()
 }
 
 type Dag struct {
-	Nodes    map[string]*Node
-	inDegree map[string]int
+	Nodes      map[string]*Node
+	inDegree   map[string]int
+	workerPool chan struct{} // Semaphore for worker pool
+	Timeout    time.Duration
 }
 
-func NewDag() *Dag {
+func NewDag(timeout time.Duration) *Dag {
 	return &Dag{
-		Nodes:    make(map[string]*Node),
-		inDegree: make(map[string]int),
+		Nodes:      make(map[string]*Node),
+		inDegree:   make(map[string]int),
+		workerPool: make(chan struct{}, 4),
+		Timeout:    timeout,
 	}
 }
 
-func (d *Dag) AddNode(n *Node) error {
-	if _, ok := d.Nodes[n.ID]; ok {
-		return fmt.Errorf("node already exist")
+func (d *Dag) AddNode(name string, task func() error, timeout time.Duration) *Node {
+	n := &Node{
+		ID:      uuid.New().String(),
+		Name:    name,
+		Task:    task,
+		Timeout: timeout,
 	}
+
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	n.Timeout = timeout
 
 	d.Nodes[n.ID] = n
 	d.inDegree[n.ID] = 0
-	return nil
+
+	return n
 }
 
 func (d *Dag) IsValid() bool {
-	inDegreeCopy := make(map[string]int)
-	for k, v := range d.inDegree {
-		inDegreeCopy[k] = v
-	}
+	inDegreeCopy := d.copyInDegree()
 
 	queue := make([]*Node, 0)
 	for id, degree := range inDegreeCopy {
@@ -72,7 +95,12 @@ func (d *Dag) IsValid() bool {
 
 	return count == len(d.Nodes)
 }
+
 func (d *Dag) AddDependency(f, t *Node) error {
+	if f == t {
+		return fmt.Errorf("source can't be equal target")
+	}
+
 	_, ok := d.Nodes[f.ID]
 	if !ok {
 		return fmt.Errorf("dependency source task '%s' not found", f.ID)
@@ -88,34 +116,80 @@ func (d *Dag) AddDependency(f, t *Node) error {
 	return nil
 }
 
-func (d *Dag) Run() error {
-	queue := make([]*Node, 0)
+func (d *Dag) run(errChannel chan error) {
+	// make a copy of indegree
+	inDegree := d.copyInDegree()
 
-	for k, v := range d.inDegree {
-		if v == 0 {
-			queue = append(queue, d.Nodes[k])
+	// task queue
+	queue := make(chan *Node, len(d.Nodes))
+
+	// get 0-level in degree
+	for i, degree := range inDegree {
+		if degree == 0 {
+			queue <- d.Nodes[i]
 		}
 	}
 
-	for len(queue) > 0 {
-		//pop
-		v := queue[0]
-		queue = queue[1:]
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 
-		err := v.Task()
-		if err != nil {
-			panic(err)
-		}
+	// put nodes to the queue
+	count := 0
+	for count < len(d.Nodes) {
+		// pop node
+		node := <-queue
 
-		for _, edge := range v.Edges {
-			d.inDegree[edge.ID] -= 1
+		wg.Add(1)
+		count++
+		go func(node *Node) {
+			defer wg.Done()
 
-			if d.inDegree[edge.ID] == 0 {
-				queue = append(queue, edge)
+			err := node.RunTask()
+			if err != nil {
+				fmt.Println(err)
+				errChannel <- err
 			}
-		}
 
+			mu.Lock()
+			// put edge nodes into queue
+			for _, n := range node.Edges {
+				inDegree[n.ID] -= 1
+				if inDegree[n.ID] == 0 {
+					queue <- n
+				}
+			}
+			mu.Unlock()
+		}(node)
 	}
 
-	return nil
+	wg.Wait()
+	errChannel <- nil
+}
+
+func (d *Dag) Run(ctx context.Context) error {
+	if !d.IsValid() {
+		return ErrInvalidDAG
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, d.Timeout)
+	defer cancel()
+
+	errChannel := make(chan error, 1)
+
+	go d.run(errChannel)
+
+	select {
+	case err := <-errChannel:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("%v:%v", ErrDAGCancelled, ctx.Err())
+	}
+}
+
+func (d *Dag) copyInDegree() map[string]int {
+	m := make(map[string]int, len(d.inDegree))
+	for k, v := range d.inDegree {
+		m[k] = v
+	}
+	return m
 }

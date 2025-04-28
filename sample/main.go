@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -9,51 +10,62 @@ import (
 
 func main() {
 
-	d := dag.NewDag()
+	d := dag.NewDag(4)
 
-	n1 := dag.NewNode("task1", func() error {
+	timeout := 20 * time.Second
+	n1 := d.AddNode("task1", func() error {
 		fmt.Println("Doing 1")
-		time.Sleep(1 * time.Second)
+		defer fmt.Println("End 1")
+		time.Sleep(10 * time.Second)
 		return nil
-	})
+	}, timeout)
 
-	n2 := dag.NewNode("task2", func() error {
+	n2 := d.AddNode("task2", func() error {
 		fmt.Println("Doing 2")
-		time.Sleep(1 * time.Second)
-		return nil
-	})
+		defer fmt.Println("End 2")
 
-	n3 := dag.NewNode("task3", func() error {
+		time.Sleep(3 * time.Second)
+		return nil
+	}, timeout)
+
+	n3 := d.AddNode("task3", func() error {
 		fmt.Println("Doing 3")
-		time.Sleep(1 * time.Second)
+		defer fmt.Println("End 3")
+
+		time.Sleep(2 * time.Second)
 		return nil
-	})
+	}, timeout)
 
-	err := d.AddNode(n1)
-	if err != nil {
-		panic(err)
-	}
+	n4 := d.AddNode("task4", func() error {
+		fmt.Println("Doing 4")
+		defer fmt.Println("End 4")
 
-	err = d.AddNode(n2)
-	if err != nil {
-		panic(err)
-	}
+		time.Sleep(2 * time.Second)
+		return nil
+	}, timeout)
 
-	err = d.AddNode(n3)
-	if err != nil {
-		panic(err)
-	}
+	n5 := d.AddNode("task5", func() error {
+		fmt.Println("Doing 5")
+		defer fmt.Println("End 5")
+
+		time.Sleep(4 * time.Second)
+		return nil
+	}, timeout)
 
 	d.AddDependency(n1, n2)
-	d.AddDependency(n1, n3)
+	d.AddDependency(n3, n2)
+	d.AddDependency(n4, n5)
 
-	valid := d.IsValid()
-	if !valid {
-		panic("NOT VALID DAG")
-	}
-	fmt.Println(valid)
+	// N1 --- N2
+	// N3 --/
+	// N4 -- N5
 
-	err = d.Run()
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(2 * time.Second)
+		cancelFunc()
+	}()
+	err := d.Run(ctx)
 	if err != nil {
 		panic(err)
 	}
