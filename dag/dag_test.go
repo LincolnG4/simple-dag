@@ -10,7 +10,7 @@ import (
 )
 
 func generateValidDag() *Dag {
-	d := NewDag(30 * time.Second)
+	d := NewDag(30*time.Second, 2)
 	n1 := d.AddNode("task1", func() error {
 		fmt.Println("Doing 1")
 		defer fmt.Println("End 1")
@@ -100,7 +100,7 @@ func Test_DagRun(t *testing.T) {
 }
 
 func Test_DagTimeoutRun(t *testing.T) {
-	d := NewDag(100 * time.Millisecond) // DAG timeout
+	d := NewDag(100*time.Millisecond, 1) // DAG timeout
 
 	timeout := 50 * time.Second // Node timeout (not critical here)
 
@@ -150,4 +150,51 @@ func Test_DagTimeoutRun(t *testing.T) {
 	if elapsed > 500*time.Millisecond {
 		t.Fatalf("DAG took too long to timeout: %v", elapsed)
 	}
+}
+
+func Test_TaskTimeoutRun(t *testing.T) {
+	d := NewDag(100*time.Second, 1) // DAG timeout
+
+	timeout := 50 * time.Second // Node timeout (not critical here)
+
+	n1 := d.AddNode("task1", func() error {
+		fmt.Println("Doing 1")
+		defer fmt.Println("End 1")
+		time.Sleep(200 * time.Millisecond) // longer than DAG timeout
+		return nil
+	}, 100*time.Millisecond)
+
+	n2 := d.AddNode("task2", func() error {
+		fmt.Println("Doing 2")
+		defer fmt.Println("End 2")
+		time.Sleep(100 * time.Millisecond)
+		return nil
+	}, timeout)
+
+	n3 := d.AddNode("task3", func() error {
+		fmt.Println("Doing 3")
+		defer fmt.Println("End 3")
+		time.Sleep(100 * time.Millisecond)
+		return nil
+	}, timeout)
+
+	d.AddDependency(n1, n2)
+	d.AddDependency(n3, n2)
+
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	defer cancelFunc()
+
+	err := d.Run(ctx)
+
+	fmt.Println("Run finished with error:", err)
+
+	if err == nil {
+		t.Fatal("expected timeout error but got nil")
+	}
+
+	// Check if error is DAG timeout
+	if !errors.Is(err, ErrTaskCancelled) && !strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Fatalf("expected DAG timeout error, got: %v", err)
+	}
+
 }

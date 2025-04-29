@@ -10,7 +10,9 @@ import (
 
 func main() {
 
-	d := dag.NewDag(36000 * time.Second)
+	numWorkers := 2
+
+	d := dag.NewDag(36000*time.Second, numWorkers)
 
 	timeout := 20 * time.Second
 	n1 := d.AddNode("task1", func() error {

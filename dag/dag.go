@@ -64,11 +64,11 @@ type Dag struct {
 	Timeout    time.Duration
 }
 
-func NewDag(timeout time.Duration) *Dag {
+func NewDag(timeout time.Duration, maxWorkers int) *Dag {
 	return &Dag{
 		Nodes:      make(map[string]*Node),
 		inDegree:   make(map[string]int),
-		workerPool: make(chan struct{}, 4),
+		workerPool: make(chan struct{}, maxWorkers),
 		Timeout:    timeout,
 	}
 }
@@ -168,8 +168,15 @@ func (d *Dag) run(ctx context.Context, errChannel chan error) {
 
 		wg.Add(1)
 		count++
+
+		// Acquire worker slot
+		d.workerPool <- struct{}{}
+
 		go func(node *Node) {
 			defer wg.Done()
+			defer func() {
+				<-d.workerPool // release worker
+			}()
 
 			err := node.RunTask(ctx)
 			if err != nil {
